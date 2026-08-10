@@ -1,5 +1,7 @@
 # WardenAuthz Python SDK
 
+[![CI](https://github.com/ecarrizo2/wardenauthz-python/actions/workflows/ci.yml/badge.svg)](https://github.com/ecarrizo2/wardenauthz-python/actions/workflows/ci.yml) [![PyPI](https://img.shields.io/pypi/v/wardenauthz)](https://pypi.org/project/wardenauthz/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Official Python client for the [WardenAuthz](https://wardenauthz.com) managed authorization API.
 
 ## Installation
