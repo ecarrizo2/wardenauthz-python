@@ -4,6 +4,10 @@ on:
   push:
     tags: ['v*']
 
+permissions:
+  contents: write
+  id-token: write
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -15,6 +19,10 @@ jobs:
       - run: pip install build twine
       - run: python -m build
       - run: python -m twine check dist/*
+      - run: python -m twine upload dist/*
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
       - uses: softprops/action-gh-release@v1
         with:
           generate_release_notes: true
