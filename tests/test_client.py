@@ -10,6 +10,7 @@ from access_control import (
     HttpClient,
     AccessControlApiError,
     PaginatedResult,
+    TuplesResource,
 )
 from access_control.types import (
     AccessCheckResult,
@@ -253,6 +254,7 @@ class TestAccessControlClient:
             AccessResource, AuditResource, BillingResource, DashboardResource,
             SessionTokensResource, SodConstraintsResource, SsoResource,
             TeamMembersResource, ResourceTypesResource, OrganizationResource,
+            TuplesResource,
         )
 
         assert isinstance(client.scopes, ScopesResource)
@@ -271,6 +273,7 @@ class TestAccessControlClient:
         assert isinstance(client.team_members, TeamMembersResource)
         assert isinstance(client.resource_types, ResourceTypesResource)
         assert isinstance(client.organization, OrganizationResource)
+        assert isinstance(client.tuples, TuplesResource)
 
 
 class TestAccessResource:
@@ -557,3 +560,763 @@ class TestSessionTokensResource:
         assert result.token_type == "Bearer"
         assert result.principal_id == "user-1"
         assert len(result.permission_ids) == 2
+
+
+class TestPermissionsResource:
+    @patch("urllib.request.urlopen")
+    def test_list(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "items": [
+                {"id": "p1", "resource": "docs", "action": "read", "effect": "allow", "name": "Read Docs", "scopeId": "scope-1"},
+                {"id": "p2", "resource": "docs", "action": "write", "effect": "deny", "name": "Deny Write", "scopeId": "scope-1"},
+            ],
+            "nextToken": "token-next",
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.permissions.list(scope_id="scope-1", limit="10", next_token="token-abc")
+
+        assert len(result.items) == 2
+        assert isinstance(result.items[0], PermissionItem)
+        assert result.items[0].id == "p1"
+        assert result.items[0].effect == "allow"
+        assert result.items[1].id == "p2"
+        assert result.items[1].effect == "deny"
+        assert result.next_token == "token-next"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "GET"
+        assert "limit=10" in req.full_url
+        assert "nextToken=token-abc" in req.full_url
+        assert "scope-1/permission" in req.full_url
+
+    @patch("urllib.request.urlopen")
+    def test_list_without_pagination(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "items": [{"id": "p1", "resource": "docs", "action": "read", "effect": "allow", "name": "Read", "scopeId": "scope-1"}],
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.permissions.list(scope_id="scope-1")
+
+        assert len(result.items) == 1
+        assert result.next_token is None
+
+    @patch("urllib.request.urlopen")
+    def test_get_by_id(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "id": "perm-1", "resource": "docs", "action": "read", "effect": "allow",
+            "name": "Read Docs", "scopeId": "scope-1",
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.permissions.get_by_id("scope-1", "perm-1")
+
+        assert isinstance(result, PermissionItem)
+        assert result.id == "perm-1"
+        assert result.resource == "docs"
+        assert result.action == "read"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "GET"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/permission/perm-1"
+
+    @patch("urllib.request.urlopen")
+    def test_create(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "id": "perm-new", "resource": "admin", "action": "manage", "effect": "allow",
+            "name": "Manage Admin", "scopeId": "scope-1",
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        input_data = {"id": "perm-new", "resource": "admin", "action": "manage", "effect": "allow", "name": "Manage Admin"}
+        result = client.permissions.create("scope-1", input_data)
+
+        assert isinstance(result, PermissionItem)
+        assert result.id == "perm-new"
+        assert result.effect == "allow"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "POST"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/permission"
+        sent = json.loads(req.data)
+        assert sent["scopeId"] == "scope-1"
+
+    @patch("urllib.request.urlopen")
+    def test_update(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "id": "perm-1", "resource": "docs", "action": "read", "effect": "deny",
+            "name": "Read Docs Updated", "scopeId": "scope-1",
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.permissions.update("scope-1", "perm-1", {"effect": "deny", "name": "Read Docs Updated"})
+
+        assert isinstance(result, PermissionItem)
+        assert result.effect == "deny"
+        assert result.name == "Read Docs Updated"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "PATCH"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/permission/perm-1"
+
+    @patch("urllib.request.urlopen")
+    def test_delete(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b""
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.permissions.delete("scope-1", "perm-1")
+
+        assert result is None
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "DELETE"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/permission/perm-1"
+
+    @patch("urllib.request.urlopen")
+    def test_bulk_create(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({"ok": True})
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        inputs = [
+            {"id": "p1", "resource": "docs", "action": "read", "effect": "allow", "name": "Read"},
+            {"id": "p2", "resource": "docs", "action": "write", "effect": "allow", "name": "Write"},
+        ]
+        result = client.permissions.bulk_create("scope-1", inputs)
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "POST"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/permission/bulk"
+        sent = json.loads(req.data)
+        assert len(sent) == 2
+        assert sent[0]["scopeId"] == "scope-1"
+        assert sent[1]["scopeId"] == "scope-1"
+
+    @patch("urllib.request.urlopen")
+    def test_bulk_delete(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({"ok": True})
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        client.permissions.bulk_delete("scope-1", ["perm-1", "perm-2"])
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "DELETE"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/permission/bulk"
+        sent = json.loads(req.data)
+        assert sent == {"ids": ["perm-1", "perm-2"]}
+
+
+class TestRolesResource:
+    @patch("urllib.request.urlopen")
+    def test_list(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "items": [
+                {"id": "role-1", "name": "admin", "scopeId": "scope-1", "permissionIds": ["perm-1"]},
+                {"id": "role-2", "name": "viewer", "scopeId": "scope-1", "permissionIds": []},
+            ],
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.roles.list(scope_id="scope-1")
+
+        assert len(result.items) == 2
+        assert isinstance(result.items[0], RoleItem)
+        assert result.items[0].id == "role-1"
+        assert result.items[0].name == "admin"
+        assert result.items[1].id == "role-2"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "GET"
+        assert "scope-1/role" in req.full_url
+
+    @patch("urllib.request.urlopen")
+    def test_list_with_pagination(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "items": [{"id": "role-1", "name": "admin", "scopeId": "scope-1", "permissionIds": []}],
+            "nextToken": "next-page",
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.roles.list(scope_id="scope-1", limit="5", next_token="next")
+
+        assert result.next_token == "next-page"
+        req = mock_urlopen.call_args[0][0]
+        assert "limit=5" in req.full_url
+        assert "nextToken=next" in req.full_url
+
+    @patch("urllib.request.urlopen")
+    def test_get_by_id(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "id": "role-1", "name": "admin", "scopeId": "scope-1",
+            "permissionIds": ["perm-1", "perm-2"], "description": "Admin role",
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.roles.get_by_id("scope-1", "role-1")
+
+        assert isinstance(result, RoleItem)
+        assert result.id == "role-1"
+        assert result.name == "admin"
+        assert result.permission_ids == ["perm-1", "perm-2"]
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "GET"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/role/role-1"
+
+    @patch("urllib.request.urlopen")
+    def test_create(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "id": "role-new", "name": "editor", "scopeId": "scope-1",
+            "permissionIds": ["perm-1"],
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.roles.create("scope-1", {"id": "role-new", "name": "editor", "permissionIds": ["perm-1"]})
+
+        assert isinstance(result, RoleItem)
+        assert result.id == "role-new"
+        assert result.name == "editor"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "POST"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/role"
+        sent = json.loads(req.data)
+        assert sent["scopeId"] == "scope-1"
+
+    @patch("urllib.request.urlopen")
+    def test_update(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "id": "role-1", "name": "admin-updated", "scopeId": "scope-1",
+            "permissionIds": ["perm-1", "perm-3"],
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.roles.update("scope-1", "role-1", {"name": "admin-updated", "permissionIds": ["perm-1", "perm-3"]})
+
+        assert isinstance(result, RoleItem)
+        assert result.name == "admin-updated"
+        assert result.permission_ids == ["perm-1", "perm-3"]
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "PATCH"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/role/role-1"
+
+    @patch("urllib.request.urlopen")
+    def test_delete(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b""
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.roles.delete("scope-1", "role-1")
+
+        assert result is None
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "DELETE"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/role/role-1"
+
+    @patch("urllib.request.urlopen")
+    def test_clone(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "id": "role-cloned", "name": "admin (copy)", "scopeId": "scope-1",
+            "permissionIds": ["perm-1", "perm-2"],
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.roles.clone("scope-1", "role-1", {"name": "admin (copy)"})
+
+        assert isinstance(result, RoleItem)
+        assert result.id == "role-cloned"
+        assert result.name == "admin (copy)"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "POST"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/role/role-1/clone"
+        sent = json.loads(req.data)
+        assert sent == {"name": "admin (copy)"}
+
+
+class TestApiKeysResource:
+    @patch("urllib.request.urlopen")
+    def test_list(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "items": [
+                {"keyId": "key-1", "type": "application", "maskedKey": "sk_live_***abc", "createdAt": "2025-01-01", "subjectId": "sub-1", "name": "API Key 1"},
+                {"keyId": "key-2", "type": "management", "maskedKey": "sk_live_***def", "createdAt": "2025-02-01", "subjectId": "sub-2", "name": "API Key 2"},
+            ],
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.api_keys.list(scope_id="scope-1")
+
+        assert len(result) == 2
+        assert isinstance(result[0], ApiKeyItem)
+        assert result[0].key_id == "key-1"
+        assert result[0].type == "application"
+        assert result[1].key_id == "key-2"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "GET"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/api-key"
+
+    @patch("urllib.request.urlopen")
+    def test_list_empty(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({"items": []})
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.api_keys.list(scope_id="scope-1")
+
+        assert result == []
+
+    @patch("urllib.request.urlopen")
+    def test_get_by_id(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "keyId": "key-1", "type": "application", "maskedKey": "sk_live_***abc",
+            "createdAt": "2025-01-01T00:00:00Z", "subjectId": "sub-1", "name": "My Key",
+            "expiresAt": "2026-01-01", "lastUsedAt": "2025-06-01",
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.api_keys.get_by_id("scope-1", "key-1")
+
+        assert isinstance(result, ApiKeyItem)
+        assert result.key_id == "key-1"
+        assert result.name == "My Key"
+        assert result.expires_at == "2026-01-01"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "GET"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/api-key/key-1"
+
+    @patch("urllib.request.urlopen")
+    def test_create(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "keyId": "key-new", "type": "application", "maskedKey": "sk_live_***xyz",
+            "createdAt": "2025-01-01", "subjectId": "sub-1", "name": "New Key",
+            "key": "sk_live_full_key_here",
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.api_keys.create("scope-1", {"name": "New Key", "type": "application"})
+
+        assert isinstance(result, ApiKeyCreatedItem)
+        assert result.key_id == "key-new"
+        assert result.key == "sk_live_full_key_here"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "POST"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/api-key"
+
+    @patch("urllib.request.urlopen")
+    def test_delete(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b""
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.api_keys.delete("scope-1", "key-1")
+
+        assert result is None
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "DELETE"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/api-key/key-1"
+
+    @patch("urllib.request.urlopen")
+    def test_rotate(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "keyId": "key-1", "maskedKey": "sk_live_***new", "key": "sk_live_rotated_key",
+            "rotationRef": "rot-ref-123",
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.api_keys.rotate("scope-1", "key-1")
+
+        assert result["keyId"] == "key-1"
+        assert result["key"] == "sk_live_rotated_key"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "POST"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/api-key/key-1/rotate"
+
+
+class TestWebhooksResource:
+    @patch("urllib.request.urlopen")
+    def test_list(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "items": [
+                {"id": "wh-1", "scopeId": "scope-1", "url": "https://example.com/hook", "events": ["permission.created"], "active": True, "createdAt": "2025-01-01"},
+                {"id": "wh-2", "scopeId": "scope-1", "url": "https://example.com/hook2", "events": ["role.updated"], "active": False, "createdAt": "2025-02-01"},
+            ],
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.webhooks.list(scope_id="scope-1")
+
+        assert len(result.items) == 2
+        assert isinstance(result.items[0], WebhookEndpointItem)
+        assert result.items[0].id == "wh-1"
+        assert result.items[0].active is True
+        assert result.items[1].id == "wh-2"
+        assert result.items[1].active is False
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "GET"
+        assert "scope-1/webhooks" in req.full_url
+
+    @patch("urllib.request.urlopen")
+    def test_list_with_pagination(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "items": [{"id": "wh-1", "scopeId": "scope-1", "url": "https://ex.com/h", "events": [], "active": True, "createdAt": ""}],
+            "nextToken": "next-token",
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.webhooks.list(scope_id="scope-1", limit="10", next_token="t1")
+
+        assert result.next_token == "next-token"
+        req = mock_urlopen.call_args[0][0]
+        assert "limit=10" in req.full_url
+        assert "nextToken=t1" in req.full_url
+
+    @patch("urllib.request.urlopen")
+    def test_get_by_id(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "id": "wh-1", "scopeId": "scope-1", "url": "https://example.com/hook",
+            "events": ["permission.created", "role.updated"], "active": True,
+            "createdAt": "2025-01-01", "updatedAt": "2025-06-01",
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.webhooks.get_by_id("scope-1", "wh-1")
+
+        assert isinstance(result, WebhookEndpointItem)
+        assert result.id == "wh-1"
+        assert result.url == "https://example.com/hook"
+        assert result.events == ["permission.created", "role.updated"]
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "GET"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/webhooks/wh-1"
+
+    @patch("urllib.request.urlopen")
+    def test_create(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "id": "wh-new", "scopeId": "scope-1", "url": "https://example.com/hook",
+            "events": ["permission.created"], "active": True, "createdAt": "2025-01-01",
+            "secret": "whsec_secret_key",
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.webhooks.create("scope-1", {
+            "url": "https://example.com/hook", "events": ["permission.created"],
+        })
+
+        assert isinstance(result, WebhookEndpointCreatedItem)
+        assert result.id == "wh-new"
+        assert result.secret == "whsec_secret_key"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "POST"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/webhooks"
+
+    @patch("urllib.request.urlopen")
+    def test_update(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "id": "wh-1", "scopeId": "scope-1", "url": "https://example.com/new-url",
+            "events": ["permission.created", "role.created"], "active": False,
+            "createdAt": "2025-01-01",
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.webhooks.update("scope-1", "wh-1", {"url": "https://example.com/new-url", "active": False})
+
+        assert isinstance(result, WebhookEndpointItem)
+        assert result.url == "https://example.com/new-url"
+        assert result.active is False
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "PATCH"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/webhooks/wh-1"
+
+    @patch("urllib.request.urlopen")
+    def test_delete(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b""
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.webhooks.delete("scope-1", "wh-1")
+
+        assert result is None
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "DELETE"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/webhooks/wh-1"
+
+    @patch("urllib.request.urlopen")
+    def test_test_endpoint(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "success": True, "statusCode": 200, "responseBody": "OK",
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.webhooks.test("scope-1", "wh-1")
+
+        assert result["success"] is True
+        assert result["statusCode"] == 200
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "POST"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/webhooks/wh-1/test"
+
+
+class TestAccessPoliciesResource:
+    @patch("urllib.request.urlopen")
+    def test_list_by_scope(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "items": [
+                {"id": "ap-1", "subjectId": "sub-1", "scopeId": "scope-1", "roleIds": ["role-1"], "permissionIds": []},
+                {"id": "ap-2", "subjectId": "sub-2", "scopeId": "scope-1", "roleIds": [], "permissionIds": ["perm-1"]},
+            ],
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.access_policies.list_by_scope(scope_id="scope-1")
+
+        assert len(result) == 2
+        assert isinstance(result[0], AccessPolicyItem)
+        assert result[0].id == "ap-1"
+        assert result[0].subject_id == "sub-1"
+        assert result[0].role_ids == ["role-1"]
+        assert result[1].id == "ap-2"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "GET"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/access-policy"
+
+    @patch("urllib.request.urlopen")
+    def test_list_by_scope_empty(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({"items": []})
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.access_policies.list_by_scope(scope_id="scope-1")
+
+        assert result == []
+
+    @patch("urllib.request.urlopen")
+    def test_list_by_subject(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "items": [
+                {"id": "ap-1", "subjectId": "sub-1", "scopeId": "scope-1", "roleIds": ["role-1"], "permissionIds": []},
+                {"id": "ap-3", "subjectId": "sub-1", "scopeId": "scope-2", "roleIds": ["role-2"], "permissionIds": []},
+            ],
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.access_policies.list_by_subject(subject_id="sub-1")
+
+        assert len(result) == 2
+        assert isinstance(result[0], AccessPolicyItem)
+        assert result[0].subject_id == "sub-1"
+        assert result[0].scope_id == "scope-1"
+        assert result[1].scope_id == "scope-2"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "GET"
+        assert req.full_url == BASE_URL + "/v1/access-policy/subject/sub-1"
+
+    @patch("urllib.request.urlopen")
+    def test_create(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "id": "ap-new", "subjectId": "sub-1", "scopeId": "scope-1",
+            "roleIds": ["role-1"], "permissionIds": ["perm-1"],
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.access_policies.create("scope-1", {
+            "subjectId": "sub-1", "roleIds": ["role-1"], "permissionIds": ["perm-1"],
+        })
+
+        assert isinstance(result, AccessPolicyItem)
+        assert result.id == "ap-new"
+        assert result.subject_id == "sub-1"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "POST"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/access-policy"
+        sent = json.loads(req.data)
+        assert sent["scopeId"] == "scope-1"
+
+    @patch("urllib.request.urlopen")
+    def test_update(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "id": "ap-1", "subjectId": "sub-1", "scopeId": "scope-1",
+            "roleIds": ["role-1", "role-2"], "permissionIds": [],
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.access_policies.update("scope-1", "ap-1", {"roleIds": ["role-1", "role-2"]})
+
+        assert isinstance(result, AccessPolicyItem)
+        assert result.role_ids == ["role-1", "role-2"]
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "PATCH"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/access-policy/ap-1"
+
+    @patch("urllib.request.urlopen")
+    def test_delete(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b""
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.access_policies.delete("scope-1", "ap-1")
+
+        assert result is None
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "DELETE"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/access-policy/ap-1"
+
+
+class TestTuplesResource:
+    @patch("urllib.request.urlopen")
+    def test_write(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "id": "tuple-1", "subject": "user:alice", "relation": "member", "object": "group:engineering",
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        input_data = {"subject": "user:alice", "relation": "member", "object": "group:engineering"}
+        result = client.tuples.write(input_data)
+
+        assert result["id"] == "tuple-1"
+        assert result["subject"] == "user:alice"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "POST"
+        assert req.full_url == BASE_URL + "/v1/tuples"
+        assert json.loads(req.data) == input_data
+
+    @patch("urllib.request.urlopen")
+    def test_list(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "items": [
+                {"id": "tuple-1", "subject": "user:alice", "relation": "member", "object": "group:engineering"},
+                {"id": "tuple-2", "subject": "user:bob", "relation": "owner", "object": "group:engineering"},
+            ],
+            "nextToken": "next-token",
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.tuples.list(scope_id="scope-1", subject_id="user:alice", limit="10", next_token="t1")
+
+        assert len(result["items"]) == 2
+        assert result["items"][0]["id"] == "tuple-1"
+        assert result["nextToken"] == "next-token"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "GET"
+        assert "scopeId=scope-1" in req.full_url
+        assert "subjectId=user:alice" in req.full_url
+        assert "limit=10" in req.full_url
+        assert "nextToken=t1" in req.full_url
+
+    @patch("urllib.request.urlopen")
+    def test_list_without_params(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "items": [{"id": "tuple-1", "subject": "user:alice", "relation": "member", "object": "group:engineering"}],
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.tuples.list()
+
+        assert len(result["items"]) == 1
+        req = mock_urlopen.call_args[0][0]
+        assert req.full_url == BASE_URL + "/v1/tuples"
+
+    @patch("urllib.request.urlopen")
+    def test_list_by_resource(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "items": [
+                {"id": "tuple-1", "subject": "user:alice", "relation": "reader", "object": "docs:paper"},
+                {"id": "tuple-2", "subject": "user:bob", "relation": "editor", "object": "docs:paper"},
+            ],
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.tuples.list_by_resource(resource="docs:paper", limit="5", next_token="tok")
+
+        assert len(result["items"]) == 2
+        assert result["items"][0]["object"] == "docs:paper"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "GET"
+        assert "resource=docs:paper" in req.full_url
+        assert "limit=5" in req.full_url
+        assert "nextToken=tok" in req.full_url
+
+
+class TestTeamMembersResource:
+    @patch("urllib.request.urlopen")
+    def test_list(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "items": [
+                {"subjectId": "sub-1", "scopeId": "scope-1", "role": "admin", "addedAt": "2025-01-01"},
+                {"subjectId": "sub-2", "scopeId": "scope-1", "role": "viewer", "addedAt": "2025-02-01"},
+            ],
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.team_members.list(scope_id="scope-1")
+
+        assert len(result) == 2
+        assert isinstance(result[0], TeamMemberItem)
+        assert result[0].subject_id == "sub-1"
+        assert result[0].role == "admin"
+        assert result[1].subject_id == "sub-2"
+        assert result[1].role == "viewer"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "GET"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/team-members"
+
+    @patch("urllib.request.urlopen")
+    def test_list_empty(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({"items": []})
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.team_members.list(scope_id="scope-1")
+
+        assert result == []
+
+    @patch("urllib.request.urlopen")
+    def test_add(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "subjectId": "sub-new", "scopeId": "scope-1", "role": "admin", "addedAt": "2025-01-01",
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.team_members.add("scope-1", {"subjectId": "sub-new", "role": "admin"})
+
+        assert isinstance(result, TeamMemberItem)
+        assert result.subject_id == "sub-new"
+        assert result.role == "admin"
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "POST"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/team-members"
+
+    @patch("urllib.request.urlopen")
+    def test_remove(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b""
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.team_members.remove("scope-1", "sub-1")
+
+        assert result is None
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "DELETE"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/team-members/sub-1"

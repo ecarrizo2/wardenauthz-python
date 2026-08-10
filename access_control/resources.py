@@ -106,6 +106,9 @@ class RolesResource:
     def bulk_delete(self, scope_id: str, ids: list) -> None:
         self._c._request("DELETE", f"/v1/scope/{scope_id}/role/bulk", {"ids": ids})
 
+    def clone(self, scope_id: str, role_id: str, input: dict) -> RoleItem:
+        return RoleItem.from_dict(self._c.post(f"/v1/scope/{scope_id}/role/{role_id}/clone", input))
+
 
 class AccessPoliciesResource:
     def __init__(self, client: HttpClient):
@@ -356,6 +359,32 @@ class ResourceTypesResource:
 
     def delete(self, scope_id: str, type_id: str) -> None:
         self._c.delete(f"/v1/scope/{scope_id}/resource-type/{type_id}")
+
+
+class TuplesResource:
+    def __init__(self, client: HttpClient):
+        self._c = client
+
+    def write(self, input: dict) -> dict:
+        return self._c.post("/v1/tuples", input)
+
+    def list(self, scope_id: str = "", subject_id: str = "", resource: str = "",
+             limit: str = "", next_token: str = "") -> dict:
+        params = []
+        if scope_id: params.append(f"scopeId={scope_id}")
+        if subject_id: params.append(f"subjectId={subject_id}")
+        if resource: params.append(f"resource={resource}")
+        if limit: params.append(f"limit={limit}")
+        if next_token: params.append(f"nextToken={next_token}")
+        qs = "?" + "&".join(params) if params else ""
+        return self._c.get(f"/v1/tuples{qs}")
+
+    def list_by_resource(self, resource: str, limit: str = "", next_token: str = "") -> dict:
+        params = [f"resource={resource}"]
+        if limit: params.append(f"limit={limit}")
+        if next_token: params.append(f"nextToken={next_token}")
+        qs = "?" + "&".join(params)
+        return self._c.get(f"/v1/tuples{qs}")
 
 
 class OrganizationResource:

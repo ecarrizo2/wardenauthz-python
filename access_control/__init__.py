@@ -4,7 +4,7 @@ from .resources import (
     ApiKeysResource, WebhooksResource, AccessResource, AuditResource,
     BillingResource, DashboardResource, SessionTokensResource,
     SodConstraintsResource, SsoResource, TeamMembersResource,
-    ResourceTypesResource, OrganizationResource,
+    ResourceTypesResource, OrganizationResource, TuplesResource,
 )
 
 
@@ -27,3 +27,4 @@ class AccessControlClient:
         self.team_members = TeamMembersResource(self._http)
         self.resource_types = ResourceTypesResource(self._http)
         self.organization = OrganizationResource(self._http)
+        self.tuples = TuplesResource(self._http)
