@@ -392,13 +392,13 @@ class OrganizationResource:
         self._c = client
 
     def get(self) -> OrganizationItem:
-        return OrganizationItem.from_dict(self._c.get("/v1/organization"))
+        return OrganizationItem.from_dict(self._c.get("/v1/admin/organization"))
 
     def update(self, input: dict) -> OrganizationItem:
-        return OrganizationItem.from_dict(self._c.patch("/v1/organization", input))
+        return OrganizationItem.from_dict(self._c.patch("/v1/admin/organization", input))
 
     def delete(self) -> None:
-        self._c.delete("/v1/organization")
+        self._c.delete("/v1/admin/organization")
 
     def get_ip_allowlist(self, org_id: str) -> dict:
         return self._c.get(f"/v1/admin/org/{org_id}/ip-allowlist")
