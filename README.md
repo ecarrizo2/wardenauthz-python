@@ -1,8 +1,8 @@
-# WardenAuthz Python SDK
+# WardenAuth Python SDK
 
 [![CI](https://github.com/ecarrizo2/wardenauthz-python/actions/workflows/ci.yml/badge.svg)](https://github.com/ecarrizo2/wardenauthz-python/actions/workflows/ci.yml) [![PyPI](https://img.shields.io/pypi/v/wardenauthz)](https://pypi.org/project/wardenauthz/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Official Python client for the [WardenAuthz](https://wardenauthz.com) managed authorization API.
+Official Python client for the [WardenAuth](https://wardenauthz.com) managed authorization API: authorization for your users and your AI agents.
 
 ## Installation
 
@@ -102,7 +102,7 @@ All types include a `from_dict(data)` static factory method for deserialization.
 
 ## API Reference
 
-For full API documentation, visit the [WardenAuthz documentation](https://docs.wardenauthz.com).
+For full API documentation, visit the [WardenAuth documentation](https://docs.wardenauthz.com).
 
 ## License
 
