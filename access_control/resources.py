@@ -338,6 +338,12 @@ class TeamMembersResource:
     def remove(self, scope_id: str, subject_id: str) -> None:
         self._c.delete(f"/v1/scope/{scope_id}/team-members/{subject_id}")
 
+    def resend_invite(self, scope_id: str, subject_id: str) -> TeamMemberItem:
+        """Send a pending invitation's email again (at most 5 sends, 10 minutes apart; 429 beyond)."""
+        return TeamMemberItem.from_dict(
+            self._c.post(f"/v1/scope/{scope_id}/team-members/{subject_id}/resend-invite", {})
+        )
+
 
 class ResourceTypesResource:
     def __init__(self, client: HttpClient):

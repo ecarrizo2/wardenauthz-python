@@ -264,12 +264,22 @@ class TeamMemberItem:
     scope_id: str
     role: str
     added_at: str = ""
+    email: Optional[str] = None
+    status: str = ""
+    role_ids: List[str] = field(default_factory=list)
+    # Pending invitations only: when the email was last sent, how often, and whether the last send failed.
+    invite_sent_at: Optional[str] = None
+    invite_send_count: Optional[int] = None
+    invite_email_failed: Optional[bool] = None
 
     @staticmethod
     def from_dict(d: dict):
         return TeamMemberItem(
             subject_id=d.get("subjectId", ""), scope_id=d.get("scopeId", ""),
-            role=d.get("role", ""), added_at=d.get("addedAt", ""),
+            role=d.get("role", ""), added_at=d.get("addedAt", d.get("createdAt", "")),
+            email=d.get("email"), status=d.get("status", ""), role_ids=d.get("roleIds", []),
+            invite_sent_at=d.get("inviteSentAt"), invite_send_count=d.get("inviteSendCount"),
+            invite_email_failed=d.get("inviteEmailFailed"),
         )
 
 

@@ -1320,3 +1320,20 @@ class TestTeamMembersResource:
         req = mock_urlopen.call_args[0][0]
         assert req.method == "DELETE"
         assert req.full_url == BASE_URL + "/v1/scope/scope-1/team-members/sub-1"
+
+    @patch("urllib.request.urlopen")
+    def test_resend_invite(self, mock_urlopen):
+        mock_urlopen.return_value.__enter__.return_value = _make_response({
+            "subjectId": "pending-invite-1", "scopeId": "scope-1", "status": "pending",
+            "inviteSendCount": 2, "inviteEmailFailed": False,
+        })
+
+        client = AccessControlClient(BASE_URL, API_KEY)
+        result = client.team_members.resend_invite("scope-1", "pending-invite-1")
+
+        assert result.status == "pending"
+        assert result.invite_send_count == 2
+        assert result.invite_email_failed is False
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "POST"
+        assert req.full_url == BASE_URL + "/v1/scope/scope-1/team-members/pending-invite-1/resend-invite"
